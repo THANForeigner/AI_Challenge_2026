@@ -10,10 +10,17 @@ retriever phân bố các keyframe theo thứ tự trên toàn thời lượng t
 
 import json
 import re
+import sqlite3
 import unicodedata
 from pathlib import Path
 
-from search_types import PROJECT_DIR, load_mapping, result_from_row
+from search_types import (
+    ARTIFACTS_DIR,
+    PROJECT_DIR,
+    load_mapping,
+    mapping_sha256,
+    result_from_row,
+)
 from object_retriever import STOPWORDS
 from stdio_setup import configure_stdio
 
@@ -22,6 +29,7 @@ configure_stdio()
 
 
 ASR_DIR = PROJECT_DIR / "data" / "asr"
+ASR_INDEX_PATH = ARTIFACTS_DIR / "asr_index.sqlite3"
 
 
 def tokenize(text):
@@ -63,10 +71,15 @@ class AsrRetriever:
         self._segments = None
         self._mapping = None
         self._usable = None
+        self._connection = None
 
     def available(self):
         if self._usable is not None:
             return self._usable
+
+        if ASR_INDEX_PATH.exists():
+            self._usable = True
+            return True
 
         json_paths = list(ASR_DIR.glob("*.json")) if ASR_DIR.exists() else []
 
@@ -77,6 +90,24 @@ class AsrRetriever:
         mapping = load_mapping()
         self._usable = bool(mapping)
         return self._usable
+
+    def _open_sqlite_index(self):
+        uri = f"file:{ASR_INDEX_PATH.resolve().as_posix()}?mode=ro"
+        connection = sqlite3.connect(uri, uri=True)
+        metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+        if metadata.get("schema") != "aic_asr_sqlite_v1":
+            connection.close()
+            raise RuntimeError(
+                f"ASR index sai schema: {metadata.get('schema')!r}. "
+                "Chạy lại scripts/build_asr_index.py."
+            )
+        if metadata.get("mapping_sha256") != mapping_sha256():
+            connection.close()
+            raise RuntimeError(
+                "ASR index không khớp clip_row_mapping.jsonl. "
+                "Chạy lại scripts/build_asr_index.py."
+            )
+        return connection
 
     @staticmethod
     def _resolve_video_id(json_path, raw, mapping_video_ids, file_count):
@@ -160,6 +191,23 @@ class AsrRetriever:
             mapping_keyframes.setdefault(row["video_id"], []).append(row)
 
         mapping_video_ids = set(mapping_keyframes)
+
+        if ASR_INDEX_PATH.exists():
+            self._connection = self._open_sqlite_index()
+            self._segments = []
+            durations = dict(
+                self._connection.execute(
+                    "SELECT video_id, MAX(end_ms) FROM segments GROUP BY video_id"
+                ).fetchall()
+            )
+            for video_id, keyframes in mapping_keyframes.items():
+                self._keyframes_by_video[video_id] = (
+                    self._keyframes_with_timestamps(
+                        keyframes, int(durations.get(video_id, 0)), video_id
+                    )
+                )
+            return
+
         json_paths = sorted(ASR_DIR.glob("*.json"))
         durations = {}
 
@@ -223,14 +271,27 @@ class AsrRetriever:
             key=lambda row: abs(int(row["frame_index"]) - int(frame_index)),
         )
         center = int(nearest["timestamp_ms"])
-        texts = [
-            segment.get("text", "")
-            for segment in self._segments
-            if segment["video_id"] == video_id
-            and segment["end_ms"] >= center - window_ms
-            and segment["start_ms"] <= center + window_ms
-            and segment.get("text")
-        ]
+        if self._connection is not None:
+            texts = [
+                row[0]
+                for row in self._connection.execute(
+                    """
+                    SELECT text FROM segments
+                    WHERE video_id = ? AND end_ms >= ? AND start_ms <= ?
+                    ORDER BY start_ms
+                    """,
+                    (video_id, center - window_ms, center + window_ms),
+                ).fetchall()
+            ]
+        else:
+            texts = [
+                segment.get("text", "")
+                for segment in self._segments
+                if segment["video_id"] == video_id
+                and segment["end_ms"] >= center - window_ms
+                and segment["start_ms"] <= center + window_ms
+                and segment.get("text")
+            ]
         return " ".join(dict.fromkeys(texts))
 
     def _keyframes_in_segment(self, segment):
@@ -270,24 +331,57 @@ class AsrRetriever:
 
         query_tokens = tokenize(query) - STOPWORDS
 
-        if not query_tokens or not self._segments:
+        if not query_tokens or (
+            self._connection is None and not self._segments
+        ):
             return None
 
         scores = {}
 
-        for segment in self._segments:
-            overlap = len(query_tokens & segment["tokens"])
+        if self._connection is not None:
+            placeholders = ",".join("?" for _ in query_tokens)
+            segment_limit = max(int(top_k) * 50, 1000)
+            sql = f"""
+                SELECT s.video_id, s.start_ms, s.end_ms, COUNT(*) AS overlap
+                FROM segment_tokens st
+                JOIN segments s ON s.id = st.segment_id
+                WHERE st.token IN ({placeholders})
+                GROUP BY s.id
+                ORDER BY overlap DESC, s.id ASC
+                LIMIT ?
+            """
+            segments = [
+                {
+                    "video_id": video_id,
+                    "start_ms": int(start_ms),
+                    "end_ms": int(end_ms),
+                    "overlap": int(overlap),
+                }
+                for video_id, start_ms, end_ms, overlap in self._connection.execute(
+                    sql, (*sorted(query_tokens), segment_limit)
+                ).fetchall()
+            ]
+            for segment in segments:
+                segment_score = segment["overlap"] / len(query_tokens)
+                for row in self._keyframes_in_segment(segment):
+                    vector_index = row["vector_index"]
+                    scores[vector_index] = max(
+                        scores.get(vector_index, 0.0), segment_score
+                    )
+        else:
+            for segment in self._segments:
+                overlap = len(query_tokens & segment["tokens"])
 
-            if overlap == 0:
-                continue
+                if overlap == 0:
+                    continue
 
-            segment_score = overlap / len(query_tokens)
+                segment_score = overlap / len(query_tokens)
 
-            for row in self._keyframes_in_segment(segment):
-                vector_index = row["vector_index"]
-                scores[vector_index] = max(
-                    scores.get(vector_index, 0.0), segment_score
-                )
+                for row in self._keyframes_in_segment(segment):
+                    vector_index = row["vector_index"]
+                    scores[vector_index] = max(
+                        scores.get(vector_index, 0.0), segment_score
+                    )
 
         if not scores:
             return None

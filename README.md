@@ -21,7 +21,7 @@ aic_practice/
 │   ├── keyframes/<video_id>/0001.jpg ...   # thành viên khác cắt, đặt tên = video_id
 │   ├── metadata/<video_id>.json            # frame index mỗi keyframe (bắt buộc)
 │   ├── objects/<video_id>/0001.json        # Faster R-CNN OpenImages V4 (format TF Hub)
-│   ├── ocr/<video_id>/0001.json            # (chờ dữ liệu — PLACEHOLDERS #3)
+│   ├── ocr/<video_id>/0001.json            # chữ nhận dạng theo keyframe
 │   ├── asr/<video_id>.json                 # transcript theo segment thời gian
 │   └── videos/<video_id>.mp4               # tham khảo
 ├── features/clip/<video_id>.npy            # C1: mỗi video một file features
@@ -29,6 +29,8 @@ aic_practice/
 │   ├── clip_row_mapping.jsonl              # vector_index ↔ video/frame/keyframe
 │   ├── clip.index                          # FAISS index chung
 │   ├── object_index.json                   # inverted index vật thể
+│   ├── ocr_index.sqlite3                   # token OCR → vector_index
+│   ├── asr_index.sqlite3                   # token ASR → segment thời gian
 │   └── engine_results.json                 # kết quả search mới nhất
 ├── evals/                                  # GT + dự đoán mẫu để test chấm điểm
 └── scripts/                                # toàn bộ module (bảng bên dưới)
@@ -44,6 +46,8 @@ keyframes + metadata JSON          →  build_mapping.py      → clip_row_mappi
 các .npy + mapping                 →  build_faiss_index.py  → clip.index
                                       (bất biến C1: index.ntotal = tổng keyframe = số dòng mapping)
 objects JSON (Faster R-CNN)        →  build_object_index.py → object_index.json
+OCR JSON + mapping                 →  build_ocr_index.py    → ocr_index.sqlite3
+ASR JSON + mapping                 →  build_asr_index.py    → asr_index.sqlite3
 ```
 
 ```bash
@@ -51,6 +55,8 @@ python scripts/build_mapping.py
 python scripts/encode_clip_features.py
 python scripts/build_faiss_index.py
 python scripts/build_object_index.py
+python scripts/build_ocr_index.py
+python scripts/build_asr_index.py
 python scripts/validate_baseline_setup.py
 python scripts/test_faiss_image_query.py   # sanity: hạng 1 phải là chính ảnh query, score ~1
 ```
@@ -62,6 +68,11 @@ detection có `score > 0.4`. Có thể đổi ngưỡng để thí nghiệm bằ
 Khi dùng Object để xếp hạng, nhiều box cùng một class trong một ảnh chỉ lấy
 confidence lớn nhất; hệ thống không còn cộng lặp tất cả box và đẩy sai các
 ảnh có nhiều detection cùng loại lên đầu.
+
+OCR/ASR dùng SQLite để không phải mở lại hàng trăm nghìn JSON ở mỗi lần
+khởi động. Hai index lưu SHA-256 của `clip_row_mapping.jsonl`; nếu mapping
+thay đổi, retriever sẽ yêu cầu build lại thay vì âm thầm trả sai keyframe.
+Retriever vẫn fallback về JSON thô khi chưa có SQLite để tiện test nhỏ.
 
 ### Giai đoạn 2 — QUERY (lúc thi)
 
@@ -141,11 +152,13 @@ lời → R@1/5/20/50/100 → final. TRAKE có thêm chẩn đoán top-1:
 | `encode_clip_features.py` | CLIP ViT-B-32 openai → `features/clip/<video>.npy` |
 | `build_faiss_index.py` | gộp features → 1 FAISS IndexFlatIP + bất biến C1 |
 | `build_object_index.py` | objects JSON → inverted index class→keyframe |
+| `build_ocr_index.py` | OCR JSON/JSONL → SQLite token index |
+| `build_asr_index.py` | ASR segment JSON/JSONL → SQLite token/time index |
 | `search_types.py` | `SearchResult` thống nhất (C2) + helpers |
 | `visual_retriever.py` | CLIP text → FAISS (clip_score) |
 | `object_retriever.py` | vật thể Faster R-CNN (object_score) |
-| `ocr_retriever.py` | chữ trong ảnh (ocr_score) — chờ dữ liệu |
-| `asr_retriever.py` | lời thoại theo segment thời gian (asr_score) |
+| `ocr_retriever.py` | tìm chữ trong ảnh từ SQLite, fallback JSON |
+| `asr_retriever.py` | tìm lời thoại/segment từ SQLite, ánh xạ thời gian về keyframe |
 | `fusion.py` | Reciprocal Rank Fusion (C4) |
 | `query_router.py` | phân loại KIS/Q&A/TRAKE + tách events (rule-based) |
 | `search_engine.py` | KIS top-100 (C3) + dispatch Q&A/TRAKE + hook C9 |

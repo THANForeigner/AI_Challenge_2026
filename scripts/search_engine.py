@@ -125,7 +125,7 @@ class SearchEngine:
                 + (
                     "OK"
                     if self.ocr.available()
-                    else "chưa có data/ocr — bỏ qua"
+                    else "thiếu ocr_index.sqlite3 hoặc data/ocr — bỏ qua"
                 )
             )
             print(
@@ -133,7 +133,7 @@ class SearchEngine:
                 + (
                     "OK"
                     if self.asr.available()
-                    else "chưa có data/asr — bỏ qua"
+                    else "thiếu asr_index.sqlite3 hoặc data/asr — bỏ qua"
                 )
             )
 

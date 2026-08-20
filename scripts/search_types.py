@@ -6,7 +6,9 @@ fusion và search_engine điền các cột điểm tương ứng.
 """
 
 import json
+import hashlib
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +22,20 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 MAPPING_PATH = ARTIFACTS_DIR / "clip_row_mapping.jsonl"
 INDEX_PATH = ARTIFACTS_DIR / "clip.index"
+
+
+@lru_cache(maxsize=1)
+def mapping_sha256():
+    """Dấu vân tay dùng để ngăn các index ghép nhầm với mapping khác."""
+
+    if not MAPPING_PATH.exists():
+        raise FileNotFoundError(f"Không tìm thấy mapping: {MAPPING_PATH}")
+
+    digest = hashlib.sha256()
+    with MAPPING_PATH.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @dataclass

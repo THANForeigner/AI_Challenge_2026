@@ -121,7 +121,13 @@ def gather_evidence(top_result, engine, window=1):
             for row in neighbors
         ],
         focus_keyframe_id=top_result.keyframe_id,
-        ocr_text=_read_ocr_text(top_result.video_id, keyframe_names),
+        ocr_text=(
+            engine.ocr.context_for_keyframes(
+                top_result.video_id, keyframe_names
+            )
+            if engine.ocr.available()
+            else ""
+        ),
         asr_text=asr_text,
     )
 
