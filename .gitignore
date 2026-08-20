@@ -1,3 +1,16 @@
-.venv
-data
-artifacts
+.venv/
+__pycache__/
+*.py[cod]
+
+# Dữ liệu và model được lưu bằng Kaggle Dataset, không đưa lên Git.
+data/
+features/
+artifacts/
+models/
+checkpoints/
+
+# Đầu ra lớn hoặc tạm thời.
+*.npy
+*.index
+*.zip
+.ipynb_checkpoints/

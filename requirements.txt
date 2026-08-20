@@ -91,3 +91,6 @@ urllib3==2.7.0
 uvicorn==0.52.1
 wcwidth==0.8.2
 yarl==1.24.5
+transformers>=4.40
+sacremoses>=0.1
+sentencepiece>=0.2
