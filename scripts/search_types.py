@@ -5,8 +5,10 @@ Mọi retriever (visual / object / ocr / asr) trả về list[SearchResult];
 fusion và search_engine điền các cột điểm tương ứng.
 """
 
-import json
+import csv
 import hashlib
+import json
+import unicodedata
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -154,6 +156,104 @@ def save_json(path, data):
 
 def submission_from_results(results):
     return [result.answer for result in results]
+
+
+def normalize_qa_answer(answer, max_length=100):
+    """Chuẩn hóa Answer thành một dòng và giới hạn theo luật submission."""
+
+    normalized = unicodedata.normalize("NFC", str(answer))
+    normalized = " ".join(normalized.split())
+    return normalized[:max_length], len(normalized) > max_length
+
+
+def save_submission_csv(path, query_type, answers, event_count=None):
+    """Ghi submission UTF-8, dấu phẩy, LF và không có header."""
+
+    path = Path(path)
+    query_type = str(query_type).strip().casefold()
+
+    if query_type not in {"kis", "qa", "trake"}:
+        raise ValueError(f"Loại submission không hỗ trợ: {query_type!r}")
+
+    answers = list(answers or [])
+    rows = []
+    truncated_answers = 0
+    skipped_rows = 0
+
+    for position, answer in enumerate(answers, start=1):
+        if not isinstance(answer, dict):
+            raise ValueError(f"Kết quả thứ {position} phải là object")
+
+        video_id = str(answer.get("video_id", "")).strip()
+        if not video_id:
+            skipped_rows += 1
+            continue
+
+        if query_type == "trake":
+            frame_ids = answer.get("frame_ids")
+            if not isinstance(frame_ids, (list, tuple)):
+                skipped_rows += 1
+                continue
+
+            try:
+                frame_ids = [int(frame_id) for frame_id in frame_ids]
+            except (TypeError, ValueError):
+                skipped_rows += 1
+                continue
+
+            if event_count is not None and len(frame_ids) != int(event_count):
+                skipped_rows += 1
+                continue
+
+            if not frame_ids or any(
+                current <= previous
+                for previous, current in zip(frame_ids, frame_ids[1:])
+            ):
+                skipped_rows += 1
+                continue
+
+            rows.append([video_id, *frame_ids])
+            continue
+
+        try:
+            frame_id = int(answer["frame_id"])
+        except (KeyError, TypeError, ValueError):
+            skipped_rows += 1
+            continue
+
+        if query_type == "kis":
+            rows.append([video_id, frame_id])
+            continue
+
+        normalized_answer, truncated = normalize_qa_answer(
+            answer.get("answer", "")
+        )
+        if not normalized_answer:
+            skipped_rows += 1
+            continue
+
+        truncated_answers += int(truncated)
+        rows.append([video_id, frame_id, normalized_answer])
+
+    if answers and not rows:
+        raise ValueError("Không có dòng submission hợp lệ để ghi CSV")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(
+            file,
+            delimiter=",",
+            quoting=csv.QUOTE_MINIMAL,
+            lineterminator="\n",
+        )
+        writer.writerows(rows)
+
+    return {
+        "path": str(path),
+        "row_count": len(rows),
+        "truncated_answers": truncated_answers,
+        "skipped_rows": skipped_rows,
+    }
 
 
 def print_submission_results(results, header_lines=None):

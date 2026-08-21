@@ -146,6 +146,19 @@ python scripts/search_engine.py "Trong cảnh có biển cảnh báo, biển có
 python scripts/search_engine.py "1. chạy đà 2. giậm nhảy 3. tiếp đất" --type trake --top_k 100
 ```
 
+Mỗi lần chạy sẽ tạo CSV submission UTF-8, phân cách bằng dấu phẩy, dùng
+LF và không có header. Mặc định file nằm tại `artifacts/query-<type>.csv`;
+dùng `--output` để đặt tên theo query của BTC:
+
+```bash
+python scripts/search_engine.py "..." --type kis --output query-1-kis.csv
+python scripts/search_engine.py "..." --type qa --output query-2-qa.csv
+python scripts/search_engine.py "..." --type trake --output query-3-trake.csv
+```
+
+Answer Q&A được chuẩn hóa về một dòng và tự cắt còn tối đa 100 ký tự.
+TRAKE chỉ ghi các chuỗi có đúng số event và frame tăng nghiêm ngặt.
+
 Script cũ vẫn dùng được nếu muốn đi từng bước thủ công:
 `search_text_query.py` (chỉ CLIP) rồi `rerank_objects.py` (chỉ object).
 

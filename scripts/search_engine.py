@@ -24,6 +24,7 @@ from search_types import (
     load_mapping,
     print_submission_results,
     save_json,
+    save_submission_csv,
     serialize_results,
     submission_from_results,
     video_keyframes,
@@ -39,6 +40,37 @@ configure_stdio()
 
 ENGINE_RESULTS_PATH = ARTIFACTS_DIR / "engine_results.json"
 SUPPORTED_MODALITIES = ("visual", "object", "ocr", "asr")
+
+
+def write_cli_submission(
+    query_type, answers, output_path=None, event_count=None
+):
+    path = (
+        Path(output_path)
+        if output_path
+        else ARTIFACTS_DIR / f"query-{query_type}.csv"
+    )
+    summary = save_submission_csv(
+        path,
+        query_type,
+        answers,
+        event_count=event_count,
+    )
+    print(f"Đã lưu CSV submission: {path} ({summary['row_count']} dòng)")
+
+    if summary["truncated_answers"]:
+        print(
+            "Cảnh báo: đã tự cắt "
+            f"{summary['truncated_answers']} Answer còn tối đa 100 ký tự."
+        )
+
+    if summary["skipped_rows"]:
+        print(
+            "Cảnh báo: đã bỏ qua "
+            f"{summary['skipped_rows']} dòng submission không hợp lệ."
+        )
+
+    return path
 
 
 def auto_min_gap(mapping):
@@ -376,6 +408,14 @@ def main():
     )
     parser.add_argument("--top_k", type=int, default=100)
     parser.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Đường dẫn CSV submission; mặc định là "
+            "artifacts/query-<type>.csv"
+        ),
+    )
+    parser.add_argument(
         "--modalities",
         default=None,
         help=(
@@ -456,6 +496,11 @@ def main():
         print("Video:", outcome["video_id"])
         print("Frame:", outcome["frame_id"])
         print("Answer:", outcome["answer"] or "(VQA không tạo được đáp án)")
+        write_cli_submission(
+            "qa",
+            outcome.get("answers", []),
+            output_path=args.output,
+        )
 
         return
 
@@ -491,6 +536,13 @@ def main():
         ):
             print(f"  - {event} → frame {frame_id}")
 
+        write_cli_submission(
+            "trake",
+            outcome.get("answers", []),
+            output_path=args.output,
+            event_count=len(outcome["events"]),
+        )
+
         return
 
     results = engine.search_kis(
@@ -504,6 +556,11 @@ def main():
     print_submission_results(
         results,
         header_lines=[f"QUERY: {query}", f"KIS Top-{args.top_k}"],
+    )
+    write_cli_submission(
+        "kis",
+        submission_from_results(results),
+        output_path=args.output,
     )
 
     print()

@@ -212,12 +212,12 @@ def translate_for_visual(text):
 def translate_for_object(query):
     """Dịch toàn câu và các cụm ngắn để không bỏ sót tên vật thể."""
 
-    import torch
-
     text = str(query).strip()
 
-    if not text:
-        return ""
+    if not text or not looks_vietnamese(text):
+        return text
+
+    import torch
 
     if not looks_vietnamese(text):
         return text
