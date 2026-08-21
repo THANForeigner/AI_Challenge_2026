@@ -39,6 +39,8 @@ def collect_candidates(events, engine, candidate_k):
     text_cues = (
         "biển báo", "biển cảnh báo", "dòng chữ", "chữ gì", "ghi gì",
         "logo", "màn hình", "phụ đề", "văn bản",
+        "sign", "signboard", "text", "words", "subtitle", "caption",
+        "written", "what does it say", "reads",
     )
 
     for event in events:
@@ -53,7 +55,14 @@ def collect_candidates(events, engine, candidate_k):
                 if name.strip()
             ]
 
-        visual_query = translate_for_visual(event)
+        try:
+            visual_query = translate_for_visual(event)
+        except Exception as error:
+            print(
+                f"  Cảnh báo: không dịch được event {event!r}: {error}. "
+                "Dùng text gốc cho CLIP."
+            )
+            visual_query = event
         if visual_query != event:
             print(f"  CLIP event: {event} → {visual_query}")
         print(f"  Modalities: {', '.join(modalities)}")
@@ -306,6 +315,40 @@ def video_median_gap(video_rows):
     return max(1, diffs[len(diffs) // 2])
 
 
+def enforce_increasing_frames(frame_ids, video_rows):
+    """Chuỗi event phải có frame tăng nghiêm ngặt.
+
+    Nội suy có thể bám cùng một keyframe cho hai event liên tiếp; khi đó
+    đẩy event sau lên keyframe kế tiếp của video (nếu còn).
+    """
+
+    if not frame_ids:
+        return frame_ids
+
+    sorted_frames = sorted(
+        {int(row["frame_index"]) for row in video_rows}
+    )
+    fixed = []
+
+    for frame in frame_ids:
+        if fixed and frame <= fixed[-1]:
+            successor = next(
+                (
+                    candidate
+                    for candidate in sorted_frames
+                    if candidate > fixed[-1]
+                ),
+                None,
+            )
+
+            if successor is not None:
+                frame = successor
+
+        fixed.append(frame)
+
+    return fixed
+
+
 def search_trake(events, engine, candidate_k=300, answer_k=100):
     """
     Interface C8:
@@ -395,10 +438,10 @@ def search_trake(events, engine, candidate_k=300, answer_k=100):
         save_json(ARTIFACTS_DIR / "trake_results.json", outcome)
         return outcome
 
-    best_video = None
-    best_chain_length = -1
-    best_chain_score = float("-inf")
-    best_chosen_map = None
+    # Không có chuỗi đầy đủ: xếp hạng mọi video theo (số event phủ được,
+    # tổng điểm) rồi nội suy mỗi chuỗi thành một câu trả lời riêng, thay
+    # vì nộp duy nhất một chuỗi (mất recall nếu chuỗi tốt nhất lệch).
+    partial_candidates = []
 
     for video_id, by_event in videos.items():
         chain_events, chain_results = best_chain_in_video(
@@ -408,23 +451,18 @@ def search_trake(events, engine, candidate_k=300, answer_k=100):
         if not chain_events:
             continue
 
-        chain_score = sum(
-            candidate_score(result) for result in chain_results
+        partial_candidates.append(
+            {
+                "video_id": video_id,
+                "chain_length": len(chain_events),
+                "chain_score": sum(
+                    candidate_score(result) for result in chain_results
+                ),
+                "chosen_map": dict(zip(chain_events, chain_results)),
+            }
         )
 
-        if (
-            len(chain_events) > best_chain_length
-            or (
-                len(chain_events) == best_chain_length
-                and chain_score > best_chain_score
-            )
-        ):
-            best_video = video_id
-            best_chain_length = len(chain_events)
-            best_chain_score = chain_score
-            best_chosen_map = dict(zip(chain_events, chain_results))
-
-    if best_video is None:
+    if not partial_candidates:
         return {
             "type": "trake",
             "video_id": None,
@@ -432,28 +470,76 @@ def search_trake(events, engine, candidate_k=300, answer_k=100):
             "error": "Không video nào có ứng viên cho chuỗi event",
         }
 
-    complete_chain = best_chain_length == len(events)
-
-    video_rows = videos_info.get(best_video, [])
-
-    frames, keyframe_ids = interpolate_missing(
-        events,
-        best_chosen_map,
-        video_rows,
-        video_median_gap(video_rows),
+    partial_candidates.sort(
+        key=lambda item: (
+            item["chain_length"],
+            item["chain_score"],
+        ),
+        reverse=True,
     )
 
-    frame_ids = [frames[index] for index in range(len(events))]
-    keyframe_list = [
-        keyframe_ids[index] for index in range(len(events))
-    ]
+    best = partial_candidates[0]
+    best_video = best["video_id"]
+    best_chain_length = best["chain_length"]
+    best_chain_score = best["chain_score"]
+    best_chosen_map = best["chosen_map"]
+    complete_chain = best_chain_length == len(events)
+
+    def build_answer(candidate):
+        video_id = candidate["video_id"]
+        video_rows = videos_info.get(video_id, [])
+
+        frames, _keyframe_ids = interpolate_missing(
+            events,
+            candidate["chosen_map"],
+            video_rows,
+            video_median_gap(video_rows),
+        )
+
+        frame_ids = enforce_increasing_frames(
+            [frames[index] for index in range(len(events))],
+            video_rows,
+        )
+        # Frame có thể bị đẩy sang keyframe kế tiếp để giữ thứ tự tăng;
+        # bám lại keyframe gần nhất để lấy id/đường dẫn đồng bộ.
+        keyframe_list = [
+            nearest_keyframe_frame(video_rows, frame)[1]
+            for frame in frame_ids
+        ]
+        return {
+            "video_id": video_id,
+            "frame_ids": frame_ids,
+            "keyframe_ids": keyframe_list,
+        }
+
+    answers = []
+    seen_chains = set()
+
+    for candidate in partial_candidates:
+        if len(answers) >= answer_k:
+            break
+
+        answer = build_answer(candidate)
+        chain_key = (answer["video_id"], tuple(answer["frame_ids"]))
+
+        if chain_key in seen_chains:
+            continue
+
+        seen_chains.add(chain_key)
+        answers.append(answer)
+
+    best_answer = answers[0]
+    frame_ids = best_answer["frame_ids"]
+    keyframe_list = best_answer["keyframe_ids"]
+
+    video_rows = videos_info.get(best_video, [])
     path_by_keyframe_id = {
         make_keyframe_id(row["video_id"], row["keyframe_name"]):
         relative_keyframe_path(row["video_id"], row["keyframe_name"])
         for row in video_rows
     }
     keyframe_paths = [
-        path_by_keyframe_id[keyframe_id]
+        path_by_keyframe_id.get(keyframe_id, "")
         for keyframe_id in keyframe_list
     ]
 
@@ -470,6 +556,8 @@ def search_trake(events, engine, candidate_k=300, answer_k=100):
             f"[{keyframe_list[index]}]{marker}"
         )
 
+    print(f"TRAKE — số chuỗi ứng viên nộp được: {len(answers)}")
+
     outcome = {
         "type": "trake",
         "video_id": best_video,
@@ -485,9 +573,18 @@ def search_trake(events, engine, candidate_k=300, answer_k=100):
         },
         "answers": [
             {
-                "video_id": best_video,
-                "frame_ids": frame_ids,
+                "video_id": answer["video_id"],
+                "frame_ids": answer["frame_ids"],
             }
+            for answer in answers
+        ],
+        "candidates": [
+            {
+                "video_id": answer["video_id"],
+                "frame_ids": answer["frame_ids"],
+                "keyframe_ids": answer["keyframe_ids"],
+            }
+            for answer in answers
         ],
     }
     save_json(ARTIFACTS_DIR / "trake_results.json", outcome)

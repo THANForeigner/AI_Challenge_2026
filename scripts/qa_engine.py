@@ -23,6 +23,14 @@ configure_stdio()
 DEFAULT_VQA_MODEL = "dandelin/vilt-b32-finetuned-vqa"
 OCR_DIR = PROJECT_DIR / "data" / "ocr"
 
+# Câu hỏi về chữ/lời thoại: bằng chứng OCR/ASR được tính thẳng vào điểm
+# chọn ứng viên, không chỉ trông vào VQA.
+TEXT_QUESTION_CUES = (
+    "chữ gì", "dòng chữ", "ghi gì", "viết gì", "đọc là", "nói gì",
+    "nhắc đến", "what does the text", "what is written", "what does it say",
+    "what does the sign", "reads",
+)
+
 _vqa_model = None
 _vqa_processor = None
 _vqa_device = None
@@ -206,6 +214,62 @@ def normalize_vqa_answer(answer):
     return number_words.get(normalized, vietnamese.get(normalized, normalized))
 
 
+def refine_vqa_question(question):
+    """Cắt phần mô tả sự kiện, giữ lại câu hỏi cho VQA.
+
+    VQA hoạt động tốt với câu hỏi ngắn. Nếu có cụm từ hỏi đứng sau một
+    dấu phẩy, lấy từ sau dấu phẩy gần nhất trước cụm từ hỏi; nếu không
+    giữ nguyên cả câu.
+    """
+
+    from query_router import QUESTION_MARKERS_EN, QUESTION_MARKERS_VI
+
+    text = question.strip()
+    lowered = text.casefold()
+
+    marker_positions = []
+    for marker in QUESTION_MARKERS_EN + QUESTION_MARKERS_VI:
+        position = lowered.find(marker)
+        if position >= 0:
+            marker_positions.append(position)
+
+    if not marker_positions:
+        return text
+
+    first_marker = min(marker_positions)
+    comma = text.rfind(",", 0, first_marker + 1)
+
+    if comma >= 0:
+        tail = text[comma + 1:].strip(" ,.;:")
+        if tail:
+            return tail
+
+    return text
+
+
+def is_text_question(question):
+    lowered = str(question).casefold()
+    return any(cue in lowered for cue in TEXT_QUESTION_CUES)
+
+
+def text_evidence_overlap(question, evidence):
+    """Tỉ lệ token câu hỏi xuất hiện trong bằng chứng OCR/ASR."""
+
+    from object_retriever import STOPWORDS
+    from ocr_retriever import tokenize
+
+    question_tokens = tokenize(question) - STOPWORDS
+
+    if not question_tokens:
+        return 0.0
+
+    evidence_tokens = tokenize(
+        " ".join(filter(None, [evidence.ocr_text, evidence.asr_text]))
+    )
+    overlap = len(question_tokens & evidence_tokens)
+    return overlap / len(question_tokens)
+
+
 def vqa_answer(question, evidence):
     """Chạy ViLT trên từng ảnh bằng chứng và lấy dự đoán tự tin nhất."""
 
@@ -270,15 +334,40 @@ def answer_question(event_description, question, engine, top_k=5):
 
     from query_translator import translate_for_visual
 
-    visual_query = translate_for_visual(retrieval_query)
+    try:
+        visual_query = translate_for_visual(retrieval_query)
+    except Exception as error:
+        print(
+            "Cảnh báo: không dịch được query cho Q&A: "
+            f"{error}. Dùng query gốc cho retrieval."
+        )
+        visual_query = retrieval_query
+
     if visual_query != retrieval_query:
         print("Q&A — CLIP query:", visual_query)
 
-    qa_modalities = [
-        name.strip()
-        for name in os.getenv("AIC_QA_MODALITIES", "visual").split(",")
-        if name.strip()
-    ]
+    # Mặc định chỉ Visual cho retrieval Q&A: OCR/ASR của video tin tức
+    # khớp theo chủ đề (không theo cảnh) dễ đẩy frame sai lên rank 1,
+    # và VQA rất tự tin trên frame sai. Bật thêm modality bằng
+    # AIC_QA_MODALITIES=auto (mọi nhánh sẵn có) hoặc danh sách explicit.
+    raw_modalities = os.getenv("AIC_QA_MODALITIES", "visual")
+
+    if raw_modalities.strip().lower() == "auto":
+        qa_modalities = ["visual"]
+
+        if engine.object.available() and engine.object.retrieval_ready():
+            qa_modalities.append("object")
+        if engine.ocr.available():
+            qa_modalities.append("ocr")
+        if engine.asr.available():
+            qa_modalities.append("asr")
+    else:
+        qa_modalities = [
+            name.strip()
+            for name in raw_modalities.split(",")
+            if name.strip()
+        ]
+
     print("Q&A — retrieval modalities:", ", ".join(qa_modalities))
 
     results = engine.search_kis(
@@ -297,14 +386,66 @@ def answer_question(event_description, question, engine, top_k=5):
         }
 
     candidates = []
-    vqa_question = question.rsplit(",", 1)[-1].strip()
+    vqa_question = refine_vqa_question(question)
 
-    # Giới hạn 5 cảnh để test tương tác không quá chậm; model được giữ trong
-    # RAM sau lần gọi đầu tiên.
-    for retrieval_rank, result in enumerate(results[:5], start=1):
+    if vqa_question != question:
+        print("Q&A — câu hỏi rút gọn cho VQA:", vqa_question)
+
+    text_mode = is_text_question(question)
+    vqa_failed = False
+
+    try:
+        vqa_limit = max(1, int(os.getenv("AIC_QA_VQA_CANDIDATES", "5")))
+    except ValueError:
+        vqa_limit = 5
+
+    # Giới hạn mặc định 5 cảnh để test tương tác không quá chậm; model được
+    # giữ trong RAM sau lần gọi đầu tiên.
+    for retrieval_rank, result in enumerate(results[:vqa_limit], start=1):
         evidence = gather_evidence(result, engine, window=1)
-        prediction = vqa_answer(vqa_question, evidence)
-        combined_score = 0.55 / retrieval_rank + 0.45 * prediction["confidence"]
+
+        try:
+            prediction = vqa_answer(vqa_question, evidence)
+        except Exception as error:
+            # VQA lỗi (thiếu model, thiếu ảnh...) vẫn phải trả được vị trí
+            # retrieval thay vì sập toàn bộ engine.
+            vqa_failed = True
+            print(
+                f"Cảnh báo: VQA lỗi cho {result.keyframe_id}: {error}. "
+                "Chỉ dùng điểm retrieval cho ứng viên này."
+            )
+            prediction = {
+                "answer": "",
+                "answer_en": "",
+                "confidence": 0.0,
+                "question_en": vqa_question,
+                "evidence_keyframe_id": (
+                    evidence.focus_keyframe_id
+                    or (
+                        evidence.keyframe_ids[0]
+                        if evidence.keyframe_ids
+                        else ""
+                    )
+                ),
+            }
+
+        text_overlap = (
+            text_evidence_overlap(vqa_question, evidence)
+            if text_mode
+            else 0.0
+        )
+
+        if text_mode:
+            combined_score = (
+                0.4 / retrieval_rank
+                + 0.3 * prediction["confidence"]
+                + 0.3 * text_overlap
+            )
+        else:
+            combined_score = (
+                0.55 / retrieval_rank + 0.45 * prediction["confidence"]
+            )
+
         candidates.append(
             {
                 "video_id": result.video_id,
@@ -312,6 +453,7 @@ def answer_question(event_description, question, engine, top_k=5):
                 "answer": prediction["answer"],
                 "answer_en": prediction["answer_en"],
                 "vqa_confidence": prediction["confidence"],
+                "text_overlap": text_overlap,
                 "combined_score": combined_score,
                 "retrieval_rank": retrieval_rank,
                 "question_en": prediction["question_en"],
@@ -346,7 +488,7 @@ def answer_question(event_description, question, engine, top_k=5):
         "video_id": best["video_id"],
         "frame_id": best["frame_id"],
         "answer": best["answer"],
-        "vqa_status": "ok",
+        "vqa_status": "partial_error" if vqa_failed else "ok",
         "submission": answers[0],
         "answers": answers,
         "candidates": candidates,

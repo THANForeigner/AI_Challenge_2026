@@ -3,6 +3,7 @@
 import json
 from collections import defaultdict
 from pathlib import Path
+import sqlite3
 
 import faiss
 import numpy as np
@@ -16,6 +17,7 @@ configure_stdio()
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 MAPPING_PATH = PROJECT_DIR / "artifacts" / "clip_row_mapping.jsonl"
 INDEX_PATH = PROJECT_DIR / "artifacts" / "clip.index"
+OBJECT_SQLITE_INDEX_PATH = PROJECT_DIR / "artifacts" / "object_index.sqlite3"
 OBJECT_INDEX_PATH = PROJECT_DIR / "artifacts" / "object_index.json"
 FEATURES_DIR = PROJECT_DIR / "features" / "clip"
 KEYFRAME_DIR = PROJECT_DIR / "data" / "keyframes"
@@ -122,8 +124,51 @@ def validate_faiss(expected_count, expected_dimension):
 
 
 def validate_object_index():
+    if OBJECT_SQLITE_INDEX_PATH.exists():
+        from object_retriever import ObjectRetriever
+
+        retriever = ObjectRetriever()
+        try:
+            _ = retriever.vocabulary  # đồng thời kiểm schema + mapping SHA
+            metadata = retriever.metadata
+            threshold = float(metadata["min_score_exclusive"])
+            if threshold != BASELINE_OBJECT_THRESHOLD:
+                fail(
+                    "object index chưa xác nhận ngưỡng score > 0.4; "
+                    "chạy lại scripts/build_object_index.py"
+                )
+            connection = sqlite3.connect(
+                f"file:{OBJECT_SQLITE_INDEX_PATH.resolve().as_posix()}?mode=ro",
+                uri=True,
+            )
+            try:
+                minimum, posting_count = connection.execute(
+                    "SELECT MIN(max_confidence), COUNT(*) FROM postings"
+                ).fetchone()
+            finally:
+                connection.close()
+            if not posting_count:
+                fail("object SQLite index không có detection nào")
+            if float(minimum) <= BASELINE_OBJECT_THRESHOLD:
+                fail("object index vẫn chứa detection score <= 0.4")
+            indexed = metadata.get("indexed_detections", "?")
+            if not retriever.complete:
+                fail(
+                    "Object SQLite chỉ bao phủ một phần keyframe. Không dùng "
+                    "batch tạm cho setup chính thức; build lại với "
+                    "--require_complete."
+                )
+            complete = "đủ"
+            print(
+                f"  ✓ Object SQLite ({complete}): score > {threshold}, "
+                f"{indexed} detection được index"
+            )
+        finally:
+            retriever.close()
+        return
+
     if not OBJECT_INDEX_PATH.exists():
-        print("  ! Chưa có object_index.json (không cản Visual baseline)")
+        print("  ! Chưa có Object index (không cản Visual baseline)")
         return
 
     data = json.loads(OBJECT_INDEX_PATH.read_text(encoding="utf-8"))

@@ -76,16 +76,82 @@ TRAKE_CASES = [
     },
 ]
 
+# Bộ test MỞ RỘNG: các cảnh khác với bộ basic, ground truth gán theo shot
+# sau khi xem trực quan từng keyframe (video tin tức, shot ngắn 3-9 giây).
+EXTRA_KIS_CASES = [
+    ("xkis_01", "hàng dừa bên bờ sông ngập nước", 23, 24),
+    ("xkis_02", "người đàn ông phát biểu trong phòng họp", 25, 26),
+    ("xkis_03", "tấm bản đồ thiết kế được giở ra xem", 36, 37),
+    ("xkis_04", "máy xúc màu vàng đậu cạnh bờ sông", 38, 39),
+    ("xkis_05", "mặt đường bê tông nứt vỡ để lộ ống nước", 40, 40),
+    ("xkis_06", "tường bê tông chắn dọc bờ sông", 41, 42),
+    ("xkis_07", "nhóm người đội nón khảo sát hiện trường sạt lở", 43, 45),
+]
+
+EXTRA_QA_CASES = [
+    {
+        "id": "xqa_01",
+        "event": "cảnh máy xúc đậu cạnh bờ sông",
+        "question": "máy xúc có màu gì?",
+        "window": (38, 39),
+        "answers": {"vàng", "yellow"},
+    },
+    {
+        "id": "xqa_02",
+        "event": "cảnh người đàn ông đứng phát biểu trong phòng họp",
+        "question": "người đàn ông mặc áo màu gì?",
+        "window": (26, 26),
+        "answers": {"trắng", "white"},
+    },
+    {
+        "id": "xqa_03",
+        "event": "cảnh tường bê tông chắn dọc bờ sông",
+        "question": "nước sông có màu gì?",
+        "window": (41, 42),
+        "answers": {"nâu", "brown", "cam", "orange", "vàng", "yellow"},
+    },
+]
+
+EXTRA_TRAKE_CASES = [
+    {
+        "id": "xtrake_01",
+        "events": [
+            "hàng dừa bên bờ sông ngập nước",
+            "người đàn ông phát biểu trong phòng họp",
+            "tấm bản đồ thiết kế được giở ra xem",
+        ],
+        "windows": [(23, 24), (25, 26), (36, 37)],
+    },
+    {
+        "id": "xtrake_02",
+        "events": [
+            "máy xúc màu vàng đậu cạnh bờ sông",
+            "mặt đường bê tông nứt vỡ để lộ ống nước",
+            "nhóm người đội nón khảo sát hiện trường sạt lở",
+        ],
+        "windows": [(38, 39), (40, 40), (43, 45)],
+    },
+    {
+        "id": "xtrake_03",
+        "events": [
+            "biển cảnh báo sạt lở nguy hiểm",
+            "máy xúc màu vàng đậu cạnh bờ sông",
+            "đàn trâu đang ăn cỏ trên cánh đồng",
+        ],
+        "windows": [(16, 22), (38, 39), (90, 101)],
+    },
+]
+
 
 def in_window(frame_id, window):
     return window[0] <= int(frame_id) <= window[1]
 
 
-def run_kis(engine, top_k, modalities):
+def run_kis(engine, top_k, modalities, cases=None):
     reports = []
 
     print("\n=== KIS ===")
-    for query_id, query, start, end in KIS_CASES:
+    for query_id, query, start, end in (cases or KIS_CASES):
         results = engine.search_kis(
             query,
             visual_query=translate_for_visual(query),
@@ -120,13 +186,13 @@ def run_kis(engine, top_k, modalities):
     return reports
 
 
-def run_qa(engine):
+def run_qa(engine, cases=None):
     import qa_engine
 
     reports = []
     print("\n=== Q&A ===")
 
-    for case in QA_CASES:
+    for case in (cases or QA_CASES):
         outcome = qa_engine.answer_question(
             event_description=case["event"],
             question=case["question"],
@@ -165,13 +231,13 @@ def run_qa(engine):
     return reports
 
 
-def run_trake(engine):
+def run_trake(engine, cases=None):
     import trake_engine
 
     reports = []
     print("\n=== TRAKE ===")
 
-    for case in TRAKE_CASES:
+    for case in (cases or TRAKE_CASES):
         outcome = trake_engine.search_trake(
             events=case["events"],
             engine=engine,
@@ -219,14 +285,29 @@ def main():
         default="visual,object,ocr,asr",
         help="Modalities cho nhóm KIS",
     )
+    parser.add_argument(
+        "--suite",
+        choices=["basic", "extra"],
+        default="basic",
+        help=(
+            "basic: bộ 7+3+3 case gốc; extra: bộ case mới trên các shot "
+            "chưa dùng (dừa nước, phòng họp, bản đồ, máy xúc, tường bê "
+            "tông, nhóm khảo sát)"
+        ),
+    )
     args = parser.parse_args()
 
     modalities = [item.strip() for item in args.modalities.split(",") if item.strip()]
+    kis_cases = EXTRA_KIS_CASES if args.suite == "extra" else KIS_CASES
+    qa_cases = EXTRA_QA_CASES if args.suite == "extra" else QA_CASES
+    trake_cases = (
+        EXTRA_TRAKE_CASES if args.suite == "extra" else TRAKE_CASES
+    )
     engine = SearchEngine()
-    report = {"dataset": "testing", "groups": {}}
+    report = {"dataset": "testing", "suite": args.suite, "groups": {}}
 
     if args.group in {"kis", "all"}:
-        rows = run_kis(engine, args.top_k, modalities)
+        rows = run_kis(engine, args.top_k, modalities, kis_cases)
         report["groups"]["kis"] = {
             "cases": rows,
             "R@1": average(rows, "R@1"),
@@ -235,7 +316,7 @@ def main():
         }
 
     if args.group in {"qa", "all"}:
-        rows = run_qa(engine)
+        rows = run_qa(engine, qa_cases)
         report["groups"]["qa"] = {
             "cases": rows,
             "location_accuracy": average(rows, "location_correct"),
@@ -244,7 +325,7 @@ def main():
         }
 
     if args.group in {"trake", "all"}:
-        rows = run_trake(engine)
+        rows = run_trake(engine, trake_cases)
         report["groups"]["trake"] = {
             "cases": rows,
             "event_accuracy": average(rows, "event_accuracy"),

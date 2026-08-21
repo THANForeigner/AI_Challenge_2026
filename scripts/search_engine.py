@@ -117,7 +117,7 @@ class SearchEngine:
                 + (
                     "OK"
                     if self.object.available()
-                    else "thiếu object_index.json — bỏ qua"
+                    else "thiếu object_index.sqlite3/object_index.json — bỏ qua"
                 )
             )
             print(
@@ -157,7 +157,9 @@ class SearchEngine:
             raise ValueError("pool_k phải lớn hơn 0")
 
         pool_k = max(pool_k, top_k)
-        selected_modalities = list(modalities or SUPPORTED_MODALITIES)
+        selected_modalities = list(
+            SUPPORTED_MODALITIES if modalities is None else modalities
+        )
         unknown = sorted(set(selected_modalities) - set(SUPPORTED_MODALITIES))
 
         if unknown:
@@ -191,28 +193,38 @@ class SearchEngine:
             )
 
         object_query = None
+        object_label_matches = []
 
-        if "object" in selected_modalities and self.object.available():
-            if objects:
-                object_query = query
-            else:
-                from query_translator import translate_for_object
-
-                try:
-                    object_query = translate_for_object(query)
-                except Exception as error:
-                    print(
-                        "Cảnh báo: không dịch được query cho Object: "
-                        f"{error}. Object sẽ dùng query gốc."
-                    )
-                    object_query = query
-
-                if object_query != query:
-                    print(f"Object query (dịch tự động): {object_query}")
-
+        if (
+            "object" in selected_modalities
+            and self.object.available()
+            and self.object.retrieval_ready()
+        ):
             ranked["object"] = self.object.search(
-                object_query, objects=objects, top_k=pool_k
+                query, objects=objects, top_k=pool_k
             )
+            object_details = self.object.last_query_details
+            object_query = object_details.get("translated_query") or query
+            object_label_matches = object_details.get("matches", [])
+
+            if object_details.get("translation_error"):
+                print(
+                    "Cảnh báo: Object không dịch được query; đã dùng "
+                    "catalog Việt–Anh/semantic nếu có: "
+                    + object_details["translation_error"]
+                )
+            if object_details.get("semantic_error"):
+                print(
+                    "Cảnh báo: Object semantic fallback không sẵn sàng: "
+                    + object_details["semantic_error"]
+                )
+            if object_label_matches:
+                labels = ", ".join(
+                    f"{match['display_name']} "
+                    f"({match['method']}, {match['score']:.2f})"
+                    for match in object_label_matches
+                )
+                print(f"Object labels: {labels}")
 
         if "ocr" in selected_modalities and self.ocr.available():
             ranked["ocr"] = self.ocr.search(query, top_k=pool_k)
@@ -233,6 +245,24 @@ class SearchEngine:
         )
         deduplicated = suppress_nearby_frames(fused, min_gap)
 
+        # Khử frame gần nhau có thể làm danh sách ngắn hơn top_k, gây mất
+        # recall (điểm BTC tính R@k trên số câu trả lời nộp). Lấp lại bằng
+        # các ứng viên bị loại, xếp sau nhóm đa dạng để không đổi top đầu.
+        if len(deduplicated) < top_k:
+            kept_indices = {
+                result.vector_index for result in deduplicated
+            }
+
+            for result in fused:
+                if len(deduplicated) >= top_k:
+                    break
+
+                if result.vector_index in kept_indices:
+                    continue
+
+                deduplicated.append(result)
+                kept_indices.add(result.vector_index)
+
         results = deduplicated[:top_k]
 
         for rank, result in enumerate(results, start=1):
@@ -248,6 +278,7 @@ class SearchEngine:
                     "query": query,
                     "visual_query": visual_query or query,
                     "object_query": object_query,
+                    "object_label_matches": object_label_matches,
                     "type": "kis",
                     "modalities_used": modalities_used,
                     "modalities_requested": selected_modalities,

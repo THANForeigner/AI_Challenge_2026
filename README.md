@@ -28,7 +28,9 @@ aic_practice/
 ├── artifacts/
 │   ├── clip_row_mapping.jsonl              # vector_index ↔ video/frame/keyframe
 │   ├── clip.index                          # FAISS index chung
-│   ├── object_index.json                   # inverted index vật thể
+│   ├── object_label_catalog.json           # 584 nhãn + alias Việt–Anh
+│   ├── object_label_embeddings.npz         # semantic label index (tùy chọn)
+│   ├── object_index.sqlite3                # class → keyframe, IDF, mapping SHA
 │   ├── ocr_index.sqlite3                   # token OCR → vector_index
 │   ├── asr_index.sqlite3                   # token ASR → segment thời gian
 │   └── engine_results.json                 # kết quả search mới nhất
@@ -45,7 +47,8 @@ keyframes + metadata JSON          →  build_mapping.py      → clip_row_mappi
 ảnh keyframe                       →  encode_clip_features.py → features/clip/<video>.npy
 các .npy + mapping                 →  build_faiss_index.py  → clip.index
                                       (bất biến C1: index.ntotal = tổng keyframe = số dòng mapping)
-objects JSON (Faster R-CNN)        →  build_object_index.py → object_index.json
+Object batch tạm                  →  build_object_label_catalog.py → catalog nhãn
+objects JSON khớp mapping          →  build_object_index.py → object_index.sqlite3
 OCR JSON + mapping                 →  build_ocr_index.py    → ocr_index.sqlite3
 ASR JSON + mapping                 →  build_asr_index.py    → asr_index.sqlite3
 ```
@@ -54,23 +57,35 @@ ASR JSON + mapping                 →  build_asr_index.py    → asr_index.sqli
 python scripts/build_mapping.py
 python scripts/encode_clip_features.py
 python scripts/build_faiss_index.py
-python scripts/build_object_index.py
+python scripts/build_object_label_catalog.py --input D:\data\objects-b1.zip
+python scripts/build_object_index.py --input D:\data\objects-full --require_complete
 python scripts/build_ocr_index.py
 python scripts/build_asr_index.py
 python scripts/validate_baseline_setup.py
 python scripts/test_faiss_image_query.py   # sanity: hạng 1 phải là chính ảnh query, score ~1
 ```
 
-`build_object_index.py` mặc định làm đúng notebook baseline: chỉ index
-detection có `score > 0.4`. Có thể đổi ngưỡng để thí nghiệm bằng
-`--min_score`, nhưng nên giữ `0.4` khi đối chứng baseline.
+Hai artifact Object có vòng đời khác nhau:
 
-Khi dùng Object để xếp hạng, nhiều box cùng một class trong một ảnh chỉ lấy
-confidence lớn nhất; hệ thống không còn cộng lặp tất cả box và đẩy sai các
-ảnh có nhiều detection cùng loại lên đầu.
+- `object_label_catalog.json` được dựng ngay từ batch tạm, không cần mapping.
+  Nó giữ toàn bộ vocabulary detector và alias Việt–Anh; batch mới chỉ cần
+  build lại để bổ sung nhãn hiếm.
+- `object_index.sqlite3` chỉ được dựng từ Object JSON khớp đúng mapping đang
+  dùng. Index lưu SHA-256 mapping, coverage, max confidence/area/count và IDF.
 
-OCR/ASR dùng SQLite để không phải mở lại hàng trăm nghìn JSON ở mỗi lần
-khởi động. Hai index lưu SHA-256 của `clip_row_mapping.jsonl`; nếu mapping
+`build_object_index.py` mặc định chỉ index detection có `score > 0.4`, giống
+notebook baseline. `--require_complete` bắt buộc mọi keyframe phải có Object;
+Object JSON không map được làm build dừng mặc định. Nếu thành viên chạy detector
+cung cấp manifest, truyền `--manifest object_manifest.json` để kiểm tra SHA từ
+trước khi scan.
+
+Khi dùng Object để xếp hạng, nhiều box cùng class chỉ lấy confidence lớn nhất.
+Các label thay thế của cùng khái niệm cũng lấy MAX (`trâu → Bull/Cattle`), còn
+hai khái niệm độc lập mới cộng điểm (`người + xe máy`). Nhãn quá phổ biến được
+giảm ảnh hưởng bằng IDF tính từ chính Object index đầy đủ.
+
+Object/OCR/ASR dùng SQLite để không phải mở lại hàng trăm nghìn JSON ở mỗi lần
+khởi động. Ba index lưu SHA-256 của `clip_row_mapping.jsonl`; nếu mapping
 thay đổi, retriever sẽ yêu cầu build lại thay vì âm thầm trả sai keyframe.
 Retriever vẫn fallback về JSON thô khi chưa có SQLite để tiện test nhỏ.
 
@@ -151,12 +166,14 @@ lời → R@1/5/20/50/100 → final. TRAKE có thêm chẩn đoán top-1:
 | `build_mapping.py` | quét keyframe + metadata → mapping (bước 1) |
 | `encode_clip_features.py` | CLIP ViT-B-32 openai → `features/clip/<video>.npy` |
 | `build_faiss_index.py` | gộp features → 1 FAISS IndexFlatIP + bất biến C1 |
-| `build_object_index.py` | objects JSON → inverted index class→keyframe |
+| `build_object_index.py` | Object JSON/ZIP → SQLite class→keyframe + IDF/SHA |
+| `build_object_label_catalog.py` | batch Object ZIP/folder → vocabulary + alias |
+| `build_object_label_embeddings.py` | semantic embeddings cho catalog (tùy chọn) |
 | `build_ocr_index.py` | OCR JSON/JSONL → SQLite token index |
 | `build_asr_index.py` | ASR segment JSON/JSONL → SQLite token/time index |
 | `search_types.py` | `SearchResult` thống nhất (C2) + helpers |
 | `visual_retriever.py` | CLIP text → FAISS (clip_score) |
-| `object_retriever.py` | vật thể Faster R-CNN (object_score) |
+| `object_retriever.py` | resolve Việt–Anh + Object SQLite/IDF (object_score) |
 | `ocr_retriever.py` | tìm chữ trong ảnh từ SQLite, fallback JSON |
 | `asr_retriever.py` | tìm lời thoại/segment từ SQLite, ánh xạ thời gian về keyframe |
 | `fusion.py` | Reciprocal Rank Fusion (C4) |
@@ -170,9 +187,17 @@ Model: OpenAI CLIP `ViT-B-32` (`ViT-B-32-quickgelu` trong open_clip) —
 trùng họ model BTC cung cấp. Features chuẩn hóa L2, index inner
 product ⇒ điểm là cosine similarity.
 
-Với KIS tiếng Việt, Object tự dịch Việt→Anh trước khi tra vocabulary
-OpenImages; Visual/OCR/ASR giữ query gốc. Riêng Q&A và TRAKE dịch phần mô tả
-sự kiện Việt→Anh cho CLIP vì ViT-B/32 hoạt động tốt hơn với tiếng Anh.
+Với KIS tiếng Việt, Object ưu tiên alias chính xác/cụm dài/không dấu trong
+catalog; chỉ dịch Việt→Anh khi catalog chưa khớp. Có thể tạo semantic fallback
+bằng `intfloat/multilingual-e5-small`:
+
+```bash
+python scripts/build_object_label_embeddings.py \
+  --model /kaggle/input/multilingual-e5-small/model
+```
+
+Trên Kaggle offline, đặt `AIC_OBJECT_SEMANTIC_MODEL` tới cùng thư mục model.
+Visual vẫn dịch mô tả Việt→Anh cho CLIP; OCR/ASR giữ nguyên query tiếng Việt.
 
 ## Ghi chú chiến lược
 

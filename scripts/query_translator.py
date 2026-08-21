@@ -10,6 +10,7 @@ configure_stdio()
 
 
 MODEL_NAME = "Helsinki-NLP/opus-mt-vi-en"
+EN_VI_MODEL_NAME = "Helsinki-NLP/opus-mt-en-vi"
 
 # Từ chức năng/lượng từ không nên dịch riêng lẻ: ví dụ ``chiếc`` có thể bị
 # Marian dịch nhầm thành ``umbrella`` và tạo false match Object.
@@ -23,6 +24,9 @@ VIETNAMESE_FUNCTION_WORDS = {
 _model = None
 _tokenizer = None
 _device = None
+_en_vi_model = None
+_en_vi_tokenizer = None
+_en_vi_device = None
 
 
 def _ensure_model():
@@ -45,6 +49,38 @@ def _ensure_model():
         MODEL_NAME,
         local_files_only=True,
     ).to(_device).eval()
+
+
+def _ensure_en_vi_model(model_name=EN_VI_MODEL_NAME):
+    """Tải model Anh→Vi dùng khi build catalog nhãn Object."""
+
+    global _en_vi_model, _en_vi_tokenizer, _en_vi_device
+
+    if _en_vi_model is not None:
+        return
+
+    import os
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    _en_vi_device = "cuda" if torch.cuda.is_available() else "cpu"
+    offline = os.getenv("AIC_OFFLINE", "0") == "1"
+    print(f"Đang tải bộ dịch Anh→Vi ({model_name})...")
+
+    try:
+        _en_vi_tokenizer = AutoTokenizer.from_pretrained(
+            model_name, local_files_only=True
+        )
+        _en_vi_model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_name, local_files_only=True
+        )
+    except OSError:
+        if offline:
+            raise
+        _en_vi_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        _en_vi_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+    _en_vi_model = _en_vi_model.to(_en_vi_device).eval()
 
 
 def looks_vietnamese(text):
@@ -92,6 +128,54 @@ def translate_vi_to_en(text):
     )[0].strip()
 
 
+def translate_en_to_vi_batch(texts, batch_size=32):
+    """Dịch một danh sách nhãn Anh→Vi theo batch để dựng catalog offline."""
+
+    import torch
+
+    sources = [str(text).strip() for text in texts]
+    if not sources:
+        return []
+
+    _ensure_en_vi_model()
+    translations = []
+
+    for start in range(0, len(sources), max(1, int(batch_size))):
+        batch = sources[start:start + max(1, int(batch_size))]
+        encoded = _en_vi_tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=64,
+        ).to(_en_vi_device)
+
+        with torch.inference_mode():
+            generated = _en_vi_model.generate(
+                **encoded,
+                # Catalog chỉ dịch tên class rất ngắn; greedy decoding nhanh
+                # hơn nhiều trên CPU và alias curated sẽ sửa các từ đa nghĩa.
+                max_length=32,
+                num_beams=1,
+                renormalize_logits=True,
+            )
+
+        translations.extend(
+            value.strip()
+            for value in _en_vi_tokenizer.batch_decode(
+                generated, skip_special_tokens=True
+            )
+        )
+
+    return translations
+
+
+@lru_cache(maxsize=512)
+def translate_en_to_vi(text):
+    values = translate_en_to_vi_batch([text], batch_size=1)
+    return values[0] if values else ""
+
+
 @lru_cache(maxsize=256)
 def translate_for_visual(text):
     """Dịch và sửa vài lỗi Marian thường gây hại cho CLIP retrieval."""
@@ -134,6 +218,9 @@ def translate_for_object(query):
 
     if not text:
         return ""
+
+    if not looks_vietnamese(text):
+        return text
 
     _ensure_model()
 
