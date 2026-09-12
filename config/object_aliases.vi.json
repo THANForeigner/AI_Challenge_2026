@@ -1,0 +1,245 @@
+{
+  "schema": "aic_object_aliases_vi_v1",
+  "concepts": [
+    {
+      "id": "buffalo",
+      "aliases": {"vi": ["trâu", "con trâu", "đàn trâu"], "en": ["buffalo", "buffaloes", "ox", "oxen"]},
+      "targets": [{"label": "cattle", "weight": 1.0}, {"label": "bull", "weight": 0.9}]
+    },
+    {
+      "id": "cow",
+      "aliases": {"vi": ["bò", "con bò", "đàn bò", "gia súc"], "en": ["cow", "cows", "calf", "calves"]},
+      "targets": [{"label": "cattle", "weight": 1.0}, {"label": "bull", "weight": 0.65}]
+    },
+    {
+      "id": "person",
+      "aliases": {"vi": ["người", "con người"], "en": ["person", "people", "human"]},
+      "targets": [{"label": "person", "weight": 1.0}]
+    },
+    {
+      "id": "man",
+      "aliases": {"vi": ["đàn ông", "người đàn ông", "nam giới"], "en": ["man", "men", "male"]},
+      "targets": [{"label": "man", "weight": 1.0}, {"label": "person", "weight": 0.65}]
+    },
+    {
+      "id": "woman",
+      "aliases": {"vi": ["phụ nữ", "người phụ nữ", "đàn bà", "nữ giới"], "en": ["woman", "women", "female"]},
+      "targets": [{"label": "woman", "weight": 1.0}, {"label": "person", "weight": 0.65}]
+    },
+    {
+      "id": "boy",
+      "aliases": {"vi": ["bé trai", "cậu bé", "con trai"], "en": ["boy", "boys"]},
+      "targets": [{"label": "boy", "weight": 1.0}, {"label": "person", "weight": 0.6}]
+    },
+    {
+      "id": "girl",
+      "aliases": {"vi": ["bé gái", "cô bé", "con gái"], "en": ["girl", "girls"]},
+      "targets": [{"label": "girl", "weight": 1.0}, {"label": "person", "weight": 0.6}]
+    },
+    {
+      "id": "face",
+      "aliases": {"vi": ["khuôn mặt", "gương mặt", "mặt người"], "en": ["face", "human face"]},
+      "targets": [{"label": "human face", "weight": 1.0}]
+    },
+    {
+      "id": "hand",
+      "aliases": {"vi": ["bàn tay", "tay người"], "en": ["hand", "human hand"]},
+      "targets": [{"label": "human hand", "weight": 1.0}]
+    },
+    {
+      "id": "car",
+      "aliases": {"vi": ["ô tô", "xe hơi", "xe con"], "en": ["car", "automobile"]},
+      "targets": [{"label": "car", "weight": 1.0}]
+    },
+    {
+      "id": "motorcycle",
+      "aliases": {"vi": ["xe máy", "mô tô", "xe mô tô"], "en": ["motorcycle", "motorbike", "scooter"]},
+      "targets": [{"label": "motorcycle", "weight": 1.0}]
+    },
+    {
+      "id": "bicycle",
+      "aliases": {"vi": ["xe đạp"], "en": ["bicycle", "bike"]},
+      "targets": [{"label": "bicycle", "weight": 1.0}]
+    },
+    {
+      "id": "vehicle",
+      "aliases": {"vi": ["phương tiện", "xe cộ", "phương tiện giao thông"], "en": ["vehicle", "land vehicle"]},
+      "targets": [{"label": "vehicle", "weight": 1.0}, {"label": "land vehicle", "weight": 0.95}]
+    },
+    {
+      "id": "bus",
+      "aliases": {"vi": ["xe buýt", "xe bus"], "en": ["bus"]},
+      "targets": [{"label": "bus", "weight": 1.0}]
+    },
+    {
+      "id": "truck",
+      "aliases": {"vi": ["xe tải", "xe camion"], "en": ["truck", "lorry"]},
+      "targets": [{"label": "truck", "weight": 1.0}]
+    },
+    {
+      "id": "airplane",
+      "aliases": {"vi": ["máy bay", "phi cơ"], "en": ["airplane", "aeroplane", "aircraft", "plane"]},
+      "targets": [{"label": "airplane", "weight": 1.0}, {"label": "aircraft", "weight": 0.92}]
+    },
+    {
+      "id": "boat",
+      "aliases": {"vi": ["thuyền", "tàu thuyền", "xuồng"], "en": ["boat", "ship", "vessel", "watercraft"]},
+      "targets": [{"label": "boat", "weight": 1.0}, {"label": "watercraft", "weight": 0.9}]
+    },
+    {
+      "id": "traffic_light",
+      "aliases": {"vi": ["đèn giao thông", "đèn tín hiệu giao thông"], "en": ["traffic light", "traffic signal"]},
+      "targets": [{"label": "traffic light", "weight": 1.0}]
+    },
+    {
+      "id": "helmet",
+      "aliases": {"vi": ["mũ bảo hiểm", "nón bảo hiểm"], "en": ["helmet"]},
+      "targets": [{"label": "helmet", "weight": 1.0}]
+    },
+    {
+      "id": "hat",
+      "aliases": {"vi": ["mũ", "nón"], "en": ["hat"]},
+      "targets": [{"label": "hat", "weight": 1.0}, {"label": "sun hat", "weight": 0.85}]
+    },
+    {
+      "id": "palm_tree",
+      "aliases": {"vi": ["cây cọ", "cây dừa"], "en": ["palm tree", "coconut tree"]},
+      "targets": [{"label": "palm tree", "weight": 1.0}]
+    },
+    {
+      "id": "tree",
+      "aliases": {"vi": ["cây", "cây xanh", "cây cối"], "en": ["tree", "trees"]},
+      "targets": [{"label": "tree", "weight": 1.0}]
+    },
+    {
+      "id": "plant",
+      "aliases": {"vi": ["thực vật", "cây trồng"], "en": ["plant", "plants"]},
+      "targets": [{"label": "plant", "weight": 1.0}]
+    },
+    {
+      "id": "flower",
+      "aliases": {"vi": ["hoa", "bông hoa"], "en": ["flower", "flowers"]},
+      "targets": [{"label": "flower", "weight": 1.0}]
+    },
+    {
+      "id": "house",
+      "aliases": {"vi": ["nhà", "ngôi nhà"], "en": ["house", "home"]},
+      "targets": [{"label": "house", "weight": 1.0}]
+    },
+    {
+      "id": "building",
+      "aliases": {"vi": ["tòa nhà", "công trình"], "en": ["building"]},
+      "targets": [{"label": "building", "weight": 1.0}]
+    },
+    {
+      "id": "skyscraper",
+      "aliases": {"vi": ["nhà chọc trời", "tòa nhà chọc trời", "cao ốc chọc trời"], "en": ["skyscraper", "high-rise building"]},
+      "targets": [{"label": "skyscraper", "weight": 1.0}]
+    },
+    {
+      "id": "lantern",
+      "aliases": {"vi": ["đèn lồng", "lồng đèn"], "en": ["lantern"]},
+      "targets": [{"label": "lantern", "weight": 1.0}]
+    },
+    {
+      "id": "rhinoceros",
+      "aliases": {"vi": ["tê giác", "con tê giác"], "en": ["rhinoceros", "rhino"]},
+      "targets": [{"label": "rhinoceros", "weight": 1.0}]
+    },
+    {
+      "id": "pumpkin",
+      "aliases": {"vi": ["bí ngô", "quả bí ngô", "bí đỏ"], "en": ["pumpkin"]},
+      "targets": [{"label": "pumpkin", "weight": 1.0}]
+    },
+    {
+      "id": "computer_monitor",
+      "aliases": {"vi": ["màn hình máy tính", "màn hình vi tính"], "en": ["computer monitor", "monitor"]},
+      "targets": [{"label": "computer monitor", "weight": 1.0}]
+    },
+    {
+      "id": "phone",
+      "aliases": {"vi": ["điện thoại", "điện thoại di động", "điện thoại thông minh"], "en": ["phone", "mobile phone", "cell phone", "smartphone"]},
+      "targets": [{"label": "mobile phone", "weight": 1.0}, {"label": "telephone", "weight": 0.8}]
+    },
+    {
+      "id": "glasses",
+      "aliases": {"vi": ["kính mắt", "mắt kính"], "en": ["glasses", "eyeglasses"]},
+      "targets": [{"label": "glasses", "weight": 1.0}]
+    },
+    {
+      "id": "food",
+      "aliases": {"vi": ["thức ăn", "đồ ăn", "món ăn", "thực phẩm"], "en": ["food", "meal"]},
+      "targets": [{"label": "food", "weight": 1.0}]
+    },
+    {
+      "id": "drink",
+      "aliases": {"vi": ["đồ uống", "nước uống", "thức uống"], "en": ["drink", "beverage"]},
+      "targets": [{"label": "drink", "weight": 1.0}]
+    },
+    {
+      "id": "dog",
+      "aliases": {"vi": ["chó", "con chó"], "en": ["dog", "dogs"]},
+      "targets": [{"label": "dog", "weight": 1.0}]
+    },
+    {
+      "id": "cat",
+      "aliases": {"vi": ["mèo", "con mèo"], "en": ["cat", "cats"]},
+      "targets": [{"label": "cat", "weight": 1.0}]
+    },
+    {
+      "id": "bird",
+      "aliases": {"vi": ["chim", "con chim", "đàn chim"], "en": ["bird", "birds"]},
+      "targets": [{"label": "bird", "weight": 1.0}]
+    },
+    {
+      "id": "fish",
+      "aliases": {"vi": ["cá", "con cá", "đàn cá"], "en": ["fish", "fishes"]},
+      "targets": [{"label": "fish", "weight": 1.0}]
+    },
+    {
+      "id": "chair",
+      "aliases": {"vi": ["ghế", "cái ghế"], "en": ["chair", "seat"]},
+      "targets": [{"label": "chair", "weight": 1.0}]
+    },
+    {
+      "id": "table",
+      "aliases": {"vi": ["bàn", "cái bàn"], "en": ["table"]},
+      "targets": [{"label": "table", "weight": 1.0}]
+    },
+    {
+      "id": "bag_generic",
+      "aliases": {"vi": ["túi", "hành lý", "túi hành lý"], "en": ["bag", "bags", "luggage", "luggage and bags"]},
+      "targets": [{"label": "luggage and bags", "weight": 1.0}, {"label": "handbag", "weight": 0.8}, {"label": "backpack", "weight": 0.8}]
+    },
+    {
+      "id": "handbag",
+      "aliases": {"vi": ["túi xách", "túi cầm tay", "ví cầm tay"], "en": ["handbag", "purse"]},
+      "targets": [{"label": "handbag", "weight": 1.0}]
+    },
+    {
+      "id": "backpack",
+      "aliases": {"vi": ["ba lô", "balo", "túi đeo lưng"], "en": ["backpack", "rucksack"]},
+      "targets": [{"label": "backpack", "weight": 1.0}]
+    },
+    {
+      "id": "poster",
+      "aliases": {"vi": ["áp phích", "tấm poster"], "en": ["poster"]},
+      "targets": [{"label": "poster", "weight": 1.0}]
+    },
+    {
+      "id": "billboard",
+      "aliases": {"vi": ["pa nô", "bảng quảng cáo", "biển quảng cáo"], "en": ["billboard"]},
+      "targets": [{"label": "billboard", "weight": 1.0}]
+    },
+    {
+      "id": "flag",
+      "aliases": {"vi": ["cờ", "lá cờ"], "en": ["flag"]},
+      "targets": [{"label": "flag", "weight": 1.0}]
+    },
+    {
+      "id": "window",
+      "aliases": {"vi": ["cửa sổ", "ô cửa sổ"], "en": ["window"]},
+      "targets": [{"label": "window", "weight": 1.0}]
+    }
+  ]
+}
