@@ -1,28 +1,30 @@
 = Phân tích Tình huống Truy vấn Tiêu biểu
 
-Phân tích kết quả thi từ 3 đợt Vòng Sơ tuyển (21/8, 28/8 và 4/9/2026), đội đã rút ra một số tình huống truy vấn tiêu biểu, thể hiện độ khó của đề thi cũng như sức mạnh của hệ thống.
+Bộ câu hỏi P2 gồm 36 câu: 26 KIS, 8 Q&A và 2 TRAKE. Theo yêu cầu kỹ thuật, bộ đề gồm 15 câu KIS thị giác–đối tượng, 6 câu KIS có diễn tiến thời gian, 5 câu KIS có chữ hoặc sơ đồ, 6 câu Q&A dựa trên OCR/ASR, 1 câu đếm thị giác, 1 câu suy luận logic và 2 câu căn chỉnh chuỗi sự kiện.
 
-== Tình huống 1: Hỏi địa danh (QA - Đèo Hải Vân)
-- **Đặc điểm câu hỏi (R1/Q17)**: Tìm frame có xuất hiện địa danh cụ thể. Đáp án đúng là "đèo Hải Vân".
-- **Cách tiếp cận & Xử lý**: Hệ thống không thể chỉ dựa vào CLIP vì "đèo Hải Vân" khó nhận dạng thuần qua hình ảnh địa hình đối với model zero-shot. Đội sử dụng **ASR Index** và **OCR Index** để tìm các từ khóa "đèo", "Hải Vân". Hệ thống phát hiện lời thuyết minh (Whisper) hoặc biển báo (EasyOCR) và gợi ý các video L22_V020, L21_V006, L22_V005. 
-- **Kết quả**: Truy xuất chính xác và điền câu trả lời "đèo Hải Vân".
+Dưới đây là 5 tình huống tiêu biểu được chọn lọc nhằm bao quát các năng lực và giới hạn hiện tại của hệ thống:
 
-== Tình huống 2: Ký hiệu đặc biệt (QA - Tỷ lệ 15‰)
-- **Đặc điểm câu hỏi (R2/Q23)**: Tìm frame chứa con số tỷ lệ, đáp án "15‰".
-- **Cách tiếp cận & Xử lý**: Ký hiệu phần nghìn "‰" rất dễ bị các engine OCR nhận diện nhầm thành "%" hoặc "0/00". Đội thi kết hợp tìm kiếm con số "15" trong OCR và lắng nghe transcript ASR (nơi người nói đọc "mười lăm phần nghìn"). Sự chỉnh lý của **Qwen3-VL-2B** ở bước hậu xử lý OCR đã giúp bảo toàn được dạng thức của ký hiệu này.
-- **Kết quả**: Chốt được đáp án "15‰" trong video L25_V087, L30_V085.
+== Tình huống 1: Concept thị giác hiếm (KIS - Xe lội nước kiểu ô tô cổ)
+- **Mã câu hỏi**: p2-10-kis
+- **Đặc điểm & Tiếp cận**: Cần tìm một hình ảnh rất đặc trưng ("xe lội nước").
+- **Kết quả & Bài học**: Với concept có hình dạng thị giác đặc trưng như xe lội nước kiểu ô tô cổ, CLIP là nhánh truy xuất phù hợp nhất; Object Index đóng vai trò bổ trợ do tập nhãn chỉ biểu diễn các lớp vật thể tổng quát.
 
-== Tình huống 3: Truy vấn TRaKE phân tán
-- **Đặc điểm câu hỏi (R2/Q21)**: Tìm 4 keyframe có liên hệ logic với nhau nhưng nằm rải rác trên 26 video khác nhau. Độ khó cực cao do không thể dò cục bộ (local context) trong 1 video.
-- **Cách tiếp cận & Xử lý**: Sử dụng tính năng truy vấn bằng hình ảnh mẫu (Image-to-Image) hoặc CLIP text search trừu tượng. Các vector của 196.590 keyframe được FAISS quét toàn cục. Hệ thống backend hỗ trợ "gom nhóm" (grouping) kết quả theo concept, giúp thành viên phát hiện ra mối nối giữa các video L29_V019, L22_V030, L21_V015...
-- **Bài học**: Hệ thống tìm kiếm theo vector (FAISS) hoạt động đặc biệt hiệu quả cho dạng đề TRaKE phân tán.
+== Tình huống 2: Phối hợp OCR và Visual (KIS - Slide bài giảng tiếng Anh)
+- **Mã câu hỏi**: p2-4-kis
+- **Đặc điểm & Tiếp cận**: Truy vấn tìm hình ảnh chứa các ví dụ ngữ pháp tiếng Anh. Nếu chỉ dùng CLIP tìm "giáo viên nữ", hệ thống sẽ bị nhiễu do có nhiều frame tương tự. Visual định vị bối cảnh lớp học, OCR đọc các câu ví dụ và công thức trên màn hình, còn ASR bổ trợ bằng nội dung giảng giải được phát âm trong video.
+- **Bài học**: Sự kết hợp đa phương thức này được sử dụng để thu hẹp không gian ứng viên. Text index (OCR) là tín hiệu "vân tay" xuất sắc cho các truy vấn chứa văn bản rõ ràng.
 
-== Tình huống 4: Văn bản Công thức Khoa học (QA)
-- **Đặc điểm câu hỏi (R3/Q6)**: Trích xuất một đoạn văn bản dài về bài toán Vật lý (con lắc đơn). 
-- **Cách tiếp cận & Xử lý**: Hình ảnh là một slide bài giảng có chứa các ký hiệu toán học (g = 9.8, biên độ góc). OCR truyền thống thường bị vỡ vụn (fragmented) khi gặp dạng này. Nhờ pipeline sử dụng EasyOCR gom dòng theo chiều dọc và Qwen3-VL-2B sửa lỗi context, đoạn text được khôi phục nguyên vẹn: "CÂU 6 Một con lắc đơn có chiều dài 81cm đang dao động điều hòa...".
-- **Kết quả**: Truy vấn chính xác text từ video L25_V085, L25_V049. 
+== Tình huống 3: Trích xuất số lượng và đơn vị (QA - Lượng nước tương)
+- **Mã câu hỏi**: p2-24-qa
+- **Đặc điểm & Tiếp cận**: Cần tìm số lượng nước tương được sử dụng. Hệ thống định vị scene, chạy OCR/ASR, và trích xuất ra các con số. Tuy nhiên, các ứng viên trả về bao gồm "200g", "3l", "3muỗng" phân tán ở nhiều video khác nhau.
+- **Kết quả & Bài học**: Hệ thống đã nhận dạng được chữ và số, nhưng bộc lộ hạn chế trong việc "gắn số đo với đúng thực thể" (nước tương). Cần cải thiện việc liên kết (grounding) thông tin số lượng với ngữ cảnh thay vì chỉ bốc tách con số nổi bật nhất.
 
-== Tình huống 5: Hỏi tên loài sinh vật (QA - Cá chim)
-- **Đặc điểm câu hỏi (R2/Q9)**: Nhận diện loài vật. Đáp án "cá chim".
-- **Cách tiếp cận & Xử lý**: Tên loài vật cụ thể bằng tiếng Việt rất hiếm có trong tập nhãn của CLIP hay Faster R-CNN (chủ yếu là nhãn chung "fish" hoặc "animal"). Do đó, nếu nhập query "cá chim" vào CLIP sẽ ít có kết quả chính xác. Đội thi linh hoạt chuyển sang **ASR Index** (tìm đoạn âm thanh MC nhắc đến "cá chim") và kết hợp với **Object Index** (bộ lọc class "fish" đã được alias tiếng Việt).
-- **Kết quả**: Tìm thấy frame chứa "cá chim" ở L26_V360, L26_V446.
+== Tình huống 4: Suy luận logic nhiều bước (QA - Số nhóm X)
+- **Mã câu hỏi**: p2-35-qa
+- **Đặc điểm & Tiếp cận**: Đáp án không xuất hiện trực tiếp mà phải suy luận từ 4 câu trắc nghiệm trên màn hình (đều chứa chữ số 0). Cơ chế text-mode hiện tại chỉ trích xuất các chữ số thô (ví dụ: 3020, 73, 2, 0) mà chưa giải quyết được bài toán điều kiện logic.
+- **Bài học**: Có một khoảng trống lớn giữa việc "truy xuất văn bản thuần túy" và "suy luận logic". Cần một mô-đun LLM/VLM đủ mạnh chạy trên nhiều frame để giải quyết dạng câu hỏi này.
+
+== Tình huống 5: Căn chỉnh chuỗi sự kiện (TRAKE - Bốn mốc làm món tôm)
+- **Mã câu hỏi**: p2-21-trake
+- **Đặc điểm & Tiếp cận**: Khác với định dạng cũ, TRAKE đợt 3 yêu cầu 4 mốc thời gian diễn ra **trong cùng một video** và phải **tăng nghiêm ngặt** về frame (E1 < E2 < E3 < E4). Engine TRAKE tách 4 event, tìm ứng viên, chuẩn hóa điểm và chạy thuật toán quy hoạch động (K-best DP) để tìm ra chuỗi sự kiện liền mạch nhất.
+- **Kết quả**: Hệ thống xếp hạng cao nhất chuỗi ứng viên trong video L26_V156 với các frame 2875, 3825, 4900 và 4925. Chuỗi thỏa điều kiện cùng video và thứ tự frame tăng nghiêm ngặt; độ chính xác nội dung cần được xác nhận bằng kết quả chấm chính thức.

@@ -26,4 +26,5 @@ Hệ thống tích hợp nhiều mô hình Trí tuệ Nhân tạo hiện đại 
 - **Chỉ mục**: Chuyển đổi toàn bộ 196.590 keyframe thành vector 512 chiều. Xây dựng chỉ mục **FAISS** (IndexFlatIP) để thực hiện tìm kiếm ảnh bằng văn bản (Text-to-Image) với độ trễ tính bằng mili-giây.
 
 == Chiến lược kết hợp Đa phương thức (Multi-modal Fusion)
-Hệ thống cho phép thực hiện song song các loại truy vấn: Semantic (CLIP), Lời thoại (ASR), Chữ viết trên màn hình (OCR) và Vật thể (Object). Sau đó, kết quả được tính điểm chéo (cross-scoring) và hợp nhất dựa trên độ tin cậy (confidence) của từng thành phần.
+Hệ thống cho phép thực hiện song song các loại truy vấn: Semantic (CLIP), Lời thoại (ASR), Chữ viết trên màn hình (OCR) và Vật thể (Object). Sau đó, kết quả được hợp nhất bằng thuật toán Reciprocal Rank Fusion (RRF) có trọng số và áp dụng cơ chế score gating để loại bỏ các nhiễu từ tín hiệu yếu.
+

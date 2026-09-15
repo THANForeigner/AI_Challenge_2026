@@ -7,7 +7,7 @@
   numbering: "1",
   header: align(right)[#text(8pt)[Báo cáo Kỹ thuật AI Challenge TP.HCM 2026]]
 )
-#set text(font: "Libertinus Serif", size: 12pt, lang: "vi")
+#set text(font: "Libertinus Serif", size: 11pt, lang: "vi")
 #set heading(numbering: "1.1.")
 #set par(justify: true)
 
@@ -27,3 +27,4 @@
 #include "sections/02-pipeline.typ"
 #include "sections/03-queries.typ"
 #include "sections/04-interface.typ"
+
